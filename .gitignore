@@ -18,7 +18,9 @@ cmake-build-*/
 *.dylib
 
 # IDE
-.vscode/
+.vscode/*.log
+.vscode/settings.json
+.vscode/c_cpp_properties.json
 .idea/
 
 # CMake
@@ -30,3 +32,6 @@ Makefile
 # Output files
 *.log
 *.out
+
+# Project files
+todo.txt
