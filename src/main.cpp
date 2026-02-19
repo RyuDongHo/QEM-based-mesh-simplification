@@ -1,206 +1,313 @@
+
+#define GLM_ENABLE_EXPERIMENTAL
+#include <stdio.h>
+#include <string.h>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include "shader.h"
+#include <vector>
+#include <math.h>
+#include <algorithm>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include "common.h"
-#include <iostream>
-#include <cmath>
 
-// GLM 없이 간단한 행렬 연산
-const float PI = 3.14159265359f;
+// window size & position
+const GLuint WIN_W = 1600;
+const GLuint WIN_H = 900;
+const GLuint WIN_X = 800;
+const GLuint WIN_Y = 450;
+float aspectRatio = (float)WIN_W / (float)WIN_H;
+GLFWwindow* window;
 
-// 4x4 단위 행렬 생성
-void createIdentityMatrix(float* matrix) {
-    for (int i = 0; i < 16; i++) {
-        matrix[i] = (i % 5 == 0) ? 1.0f : 0.0f;
-    }
+// OBJ mesh data
+std::vector<glm::vec3> vertices;
+std::vector<glm::vec2> uvs;
+std::vector<glm::vec3> normals;
+std::vector<glm::vec4> colors; // Generated colors for each vertex
+int numVertices = 0;
+
+// Sphere data (backup)
+int levelSphere = 3;
+int numVertSphere = 0;
+glm::vec4 vertSphere[10240];
+glm::vec4 normSphere[10240];
+glm::vec4 colorSphere[10240];
+
+GLuint vao;
+GLuint vbo;
+GLuint textureID;
+
+float theta = 0.f;
+float fov = 45.f;
+
+// track ball matrix
+glm::mat4 matDrag = glm::mat4(1.f);
+glm::mat4 matUpdated = glm::mat4(1.f);
+
+// mvp matrix
+glm::mat4 matModel = glm::mat4(1.f);
+glm::mat4 matView = glm::mat4(1.f);
+glm::mat4 matProj = glm::mat4(1.f);
+
+// object info variable
+GLfloat color[4] = { 0.933f, 0.769f, 0.898f, 1.0f };
+
+GLuint programID;
+
+int dragMode = GL_FALSE;
+glm::vec2 dragStart = glm::vec2(1.f);
+
+void DebugLog(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
+	const GLchar* message, const GLvoid* userParam) {
+	printf("Type: %#x; Source: %#x; ID: %d; Severity: %#x\n", type, source, id, severity);
+	printf("Message: %s\n", message);
+	fflush(stdout);
 }
 
-// 원근 투영 행렬 생성
-void createPerspectiveMatrix(float* matrix, float fov, float aspect, float near, float far) {
-    float f = 1.0f / tan(fov * PI / 360.0f);
-    createIdentityMatrix(matrix);
-    matrix[0] = f / aspect;
-    matrix[5] = f;
-    matrix[10] = (far + near) / (near - far);
-    matrix[11] = -1.0f;
-    matrix[14] = (2.0f * far * near) / (near - far);
-    matrix[15] = 0.0f;
+void initFunc() {
+	// program settings
+	programID = LoadShader("../../shader/vertex.glsl", "../../shader/fragment.glsl");
+
+	if (programID == 0) {
+		printf("Shader loading failed!\n");
+		return;
+	}
+
+	// vao settings
+	glGenVertexArrays(1, &vao);
+	glBindVertexArray(vao);
+
+	// vbo settings
+	glGenBuffers(1, &vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	
+	// Convert vec3 vertices to vec4 and prepare color data
+	std::vector<glm::vec4> verticesVec4;
+	for (const auto& v : vertices) {
+		verticesVec4.push_back(glm::vec4(v, 1.0f));
+	}
+	
+	size_t vertexSize = verticesVec4.size() * sizeof(glm::vec4);
+	size_t colorSize = colors.size() * sizeof(glm::vec4);
+	size_t uvSize = uvs.size() * sizeof(glm::vec2);
+	
+	glBufferData(GL_ARRAY_BUFFER, vertexSize + colorSize + uvSize, NULL, GL_STATIC_DRAW);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, vertexSize, verticesVec4.data());
+	glBufferSubData(GL_ARRAY_BUFFER, vertexSize, colorSize, colors.data());
+	glBufferSubData(GL_ARRAY_BUFFER, vertexSize + colorSize, uvSize, uvs.data());
+
+	// Setup vertex attributes (using layout locations from shader)
+	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, (void*)0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, (void*)vertexSize);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, (void*)(vertexSize + colorSize));
+	glEnableVertexAttribArray(2);
+
+	// clear
+	glClearColor(0.5f, 0.8f, 0.8f, 1.0f);
+	glClearDepthf(1.0f);
+	glUseProgram(programID);
+
+	// cullision mode settings
+	glEnable(GL_CULL_FACE);
+	glFrontFace(GL_CCW);
+	glCullFace(GL_BACK);
+}
+void updateFunc() {
+	float elapsedTime = (float)glfwGetTime();
+	theta = elapsedTime * (3.141592f / 2.f);
+	float radius = 3.f;
+	matView = glm::lookAt(
+		//glm::vec3(radius * cosf(theta), 0.f, radius * sinf(theta)),
+		glm::vec3(0.f, 0.f, radius),
+		glm::vec3(0.f),
+		glm::vec3(0.f, 1.f, 0.f));
+	matProj = glm::perspectiveRH(
+		glm::radians(fov),  // FOV (시야각)
+		aspectRatio,         // aspect ratio (width/height)
+		0.1f,                 // zNear
+		50.0f                // zFar
+	);
+}
+void drawFunc() {
+	glClearColor(0.5f, 0.8f, 0.8f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glEnable(GL_DEPTH_TEST);
+	glDepthRange(0.f, 1.f);
+	GLint win_w, win_h;
+	glfwGetWindowSize(window, &win_w, &win_h);
+	aspectRatio = (float)win_w / (float)win_h;
+	GLint map_x = (GLint)(win_w * 0.7f);
+	GLint map_y = (GLint)(win_h * 0.05f);
+	GLsizei map_w = (GLsizei)(win_w * 0.25f);
+	GLsizei map_h = (GLsizei)(win_h * 0.25f);
+
+	glBindVertexArray(vao);
+	glUseProgram(programID);
+
+	GLuint loc;
+	loc = glGetUniformLocation(programID, "modelMat");
+	glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(matModel));
+
+	loc = glGetUniformLocation(programID, "viewMat");
+	glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(matView));
+
+	loc = glGetUniformLocation(programID, "projMat");
+	glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(matProj));
+
+	// Bind texture and set useTexture to true
+	if (textureID != 0) {
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, textureID);
+		loc = glGetUniformLocation(programID, "textureSampler");
+		glUniform1i(loc, 0);
+		loc = glGetUniformLocation(programID, "useTexture");
+		glUniform1i(loc, 1);
+	} else {
+		loc = glGetUniformLocation(programID, "useTexture");
+		glUniform1i(loc, 0);
+	}
+
+	glViewport(0, 0, win_w, win_h);
+	glDrawArrays(GL_TRIANGLES, 0, numVertices);
+
+	glEnable(GL_SCISSOR_TEST);
+	glScissor(map_x, map_y, map_w, map_h);
+	glViewport(map_x, map_y, map_w, map_h);
+	glClearColor(0.5f, 0.5f, 1.f, 1.f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glDrawArrays(GL_TRIANGLES, 0, numVertices);
+	glScissor(0, 0, win_w, win_h);
+	glDisable(GL_SCISSOR_TEST);
+	
+	glFinish();
+	
+}
+void cursorPosFunc(GLFWwindow* win, double xscr, double yscr)
+{
+	if (dragMode) {
+		glm::vec2 dragCur = glm::vec2((GLfloat)xscr, (GLfloat)yscr);
+		matDrag = calcTrackball(dragStart, dragCur, (float)WIN_W, (float)WIN_H);
+		matModel = matDrag * matUpdated;
+	}
+}
+void mouseButtonFunc(GLFWwindow* win, int button, int action, int mods)
+{
+	GLdouble x, y;
+	switch (action) {
+	case GLFW_PRESS:
+		dragMode = GL_TRUE;
+		glfwGetCursorPos(win, &x, &y);
+		dragStart = glm::vec2((GLfloat)x, (GLfloat)y);
+		break;
+	case GLFW_RELEASE:
+		dragMode = GL_FALSE;
+		glfwGetCursorPos(win, &x, &y);
+		glm::vec2 dragCur = glm::vec2((GLfloat)x, (GLfloat)y);
+		matDrag = calcTrackball(dragStart, dragCur, (float)WIN_W, (float)WIN_H);
+		matModel = matDrag * matUpdated;
+		matDrag = glm::mat4(1.0F); // reset
+		matUpdated = matModel; // update to the object matrix
+		break;
+	}
+	fflush(stdout);
+}
+void keyFunc(GLFWwindow* window, int key, int scancode, int action, int mods) {
+	switch (key) {
+	case GLFW_KEY_ESCAPE:
+		if (action == GLFW_PRESS) {
+			printf("escape pressed\n");
+			fflush(stdout);
+			glfwSetWindowShouldClose(window, GL_TRUE);
+		}
+		break;
+	case GLFW_KEY_J:
+		if (action == GLFW_PRESS) {
+			fov = std::clamp(fov + 5.f, 0.f, 120.f);
+		}
+		break;
+	case GLFW_KEY_K:
+		if (action == GLFW_PRESS) {
+			fov = std::clamp(fov - 5.f, 0.f, 120.f);
+		}
+		break;
+	default:
+		break;
+	}
+}
+void refreshFunc(GLFWwindow* window) {
+	glClear(GL_COLOR_BUFFER_BIT);
+	glfwSwapBuffers(window);
 }
 
-// 뷰 행렬 생성 (간단한 Z축 이동)
-void createViewMatrix(float* matrix, float z) {
-    createIdentityMatrix(matrix);
-    matrix[14] = z;
-}
 
-// 회전 행렬 생성
-void createRotationMatrix(float* matrix, float angleX, float angleY, float angleZ) {
-    float cosX = cos(angleX), sinX = sin(angleX);
-    float cosY = cos(angleY), sinY = sin(angleY);
-    float cosZ = cos(angleZ), sinZ = sin(angleZ);
 
-    createIdentityMatrix(matrix);
-    
-    // Y축 회전 (좌우)
-    matrix[0] = cosY;
-    matrix[2] = sinY;
-    matrix[8] = -sinY;
-    matrix[10] = cosY;
-    
-    // X축 회전 추가
-    float temp[16];
-    for(int i = 0; i < 16; i++) temp[i] = matrix[i];
-    
-    matrix[5] = cosX;
-    matrix[6] = -sinX;
-    matrix[9] = sinX;
-    matrix[10] = cosX * temp[10];
-}
+int main(int argc, char* arvg[]) {
 
-// 키보드 입력 처리
-void processInput(GLFWwindow* window) {
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, true);
-    }
-}
+	// glfw settings
+	glfwInit();
+	window = glfwCreateWindow(WIN_W, WIN_H, "title", NULL, NULL);
+	glfwSetWindowPos(window, WIN_X, WIN_Y);
+	glfwMakeContextCurrent(window);
 
-int main() {
-    // GLFW 초기화
-    if (!glfwInit()) {
-        std::cerr << "Failed to initialize GLFW" << std::endl;
-        return -1;
-    }
+	// glew settings
+	glewInit();
 
-    // OpenGL 버전 설정
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	//glfw callback settings
+	glfwSetKeyCallback(window, keyFunc);
+	glfwSetCursorPosCallback(window, cursorPosFunc);
+	glfwSetMouseButtonCallback(window, mouseButtonFunc);
 
-    // 윈도우 생성
-    GLFWwindow* window = glfwCreateWindow(800, 600, "QEM Simplification - Cube", nullptr, nullptr);
-    if (!window) {
-        std::cerr << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-    glfwMakeContextCurrent(window);
+	// Load OBJ file
+	bool res = loadOBJ("../../resource/mesh.obj", vertices, uvs, normals);
+	if (!res) {
+		printf("Failed to load OBJ file!\n");
+		return -1;
+	}
+	numVertices = vertices.size();
+	printf("Loaded %d vertices\n", numVertices);
+	
+	// Generate colors for each vertex
+	for (size_t i = 0; i < vertices.size(); i++) {
+		glm::vec4 color(1.0f, 1.0f, 1.0f, 1.0f); // White for texture
+		colors.push_back(color);
+	}
+	
+	// Load texture
+	textureID = loadTexture("../../resource/default_baseColor.jpg");
+	if (textureID == 0) {
+		printf("Warning: Texture not loaded, using vertex colors\n");
+	}
+	
+	// generateSphere(levelSphere); // Backup sphere generation
+	// register debug callback
+	glEnable(GL_DEBUG_OUTPUT);
+	glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+	glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, NULL, GL_TRUE);
+	glDebugMessageCallback(DebugLog, NULL);
 
-    // GLEW 초기화
-    glewExperimental = GL_TRUE;
-    if (glewInit() != GLEW_OK) {
-        std::cerr << "Failed to initialize GLEW" << std::endl;
-        return -1;
-    }
-
-    // 뷰포트 설정
-    glViewport(0, 0, 800, 600);
-    glEnable(GL_DEPTH_TEST);
-
-    // 셰이더 프로그램 생성
-    GLuint shaderProgram = createShaderProgram("../shader/vertex.glsl", "../shader/fragment.glsl");
-    if (!shaderProgram) {
-        std::cerr << "Failed to create shader program" << std::endl;
-        return -1;
-    }
-
-    // 큐브 버텍스 데이터 (위치 + 색상)
-    float vertices[] = {
-        // 위치              // 색상
-        // 앞면
-        -0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f,
-         0.5f, -0.5f,  0.5f,  0.0f, 1.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  0.0f, 0.0f, 1.0f,
-        -0.5f,  0.5f,  0.5f,  1.0f, 1.0f, 0.0f,
-        // 뒷면
-        -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 1.0f,
-         0.5f, -0.5f, -0.5f,  0.0f, 1.0f, 1.0f,
-         0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 1.0f,
-        -0.5f,  0.5f, -0.5f,  0.5f, 0.5f, 0.5f
-    };
-
-    unsigned int indices[] = {
-        // 앞면
-        0, 1, 2,  2, 3, 0,
-        // 뒷면
-        5, 4, 7,  7, 6, 5,
-        // 왼쪽면
-        4, 0, 3,  3, 7, 4,
-        // 오른쪽면
-        1, 5, 6,  6, 2, 1,
-        // 위쪽면
-        3, 2, 6,  6, 7, 3,
-        // 아래쪽면
-        4, 5, 1,  1, 0, 4
-    };
-
-    // VAO, VBO, EBO 생성
-    GLuint VAO, VBO, EBO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
-
-    glBindVertexArray(VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-
-    // 위치 속성
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    // 색상 속성
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    glBindVertexArray(0);
-
-    // 행렬 준비
-    float model[16], view[16], projection[16];
-    createViewMatrix(view, -3.0f);
-    createPerspectiveMatrix(projection, 45.0f, 800.0f / 600.0f, 0.1f, 100.0f);
-
-    // 렌더링 루프
-    float rotation = 0.0f;
-    while (!glfwWindowShouldClose(window)) {
-        processInput(window);
-
-        // 배경 지우기
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        // 셰이더 사용
-        glUseProgram(shaderProgram);
-
-        // 회전 업데이트
-        rotation += 0.01f;
-        createRotationMatrix(model, rotation * 0.5f, rotation, rotation * 0.3f);
-
-        // 유니폼 설정
-        GLuint modelLoc = glGetUniformLocation(shaderProgram, "model");
-        GLuint viewLoc = glGetUniformLocation(shaderProgram, "view");
-        GLuint projLoc = glGetUniformLocation(shaderProgram, "projection");
-
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model);
-        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, view);
-        glUniformMatrix4fv(projLoc, 1, GL_FALSE, projection);
-
-        // 큐브 그리기
-        glBindVertexArray(VAO);
-        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
-
-        // 버퍼 교체 및 이벤트 처리
-        glfwSwapBuffers(window);
-        glfwPollEvents();
-    }
-
-    // 정리
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &EBO);
-    glDeleteProgram(shaderProgram);
-
-    glfwTerminate();
-    return 0;
+	initFunc();
+	// main loop
+	while (!glfwWindowShouldClose(window)) {
+		//dpdate
+		updateFunc();
+		// draw
+		drawFunc();
+		// error check
+		GLenum err = glGetError();
+		if (err != GL_NO_ERROR) {
+			printf("OpneGL error%x\n", err);
+			fflush(stdout);
+		}
+		// GLFW actions
+		glfwSwapBuffers(window);
+		glfwPollEvents();
+	}
+	//done
+	glfwTerminate();
+	return 0;
 }

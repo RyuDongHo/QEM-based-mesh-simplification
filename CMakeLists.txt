@@ -60,6 +60,16 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     $<TARGET_FILE_DIR:${PROJECT_NAME}>
 )
 
+# Shader 파일을 빌드 디렉토리로 복사
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader/vertex.glsl"
+    $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader/fragment.glsl"
+    $<TARGET_FILE_DIR:${PROJECT_NAME}>
+)
+
 # GLEW 정적 링크를 위한 정의 (필요시 주석 해제)
 # target_compile_definitions(${PROJECT_NAME} PRIVATE GLEW_STATIC)
 
