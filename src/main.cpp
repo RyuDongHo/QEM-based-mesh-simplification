@@ -1,4 +1,13 @@
 
+/*
+ * QEM Simplification - Main Application
+ * 
+ * Quadric Error Metric (QEM) 기반 메시 단순화 애플리케이션
+ * - OBJ 파일 로딩 및 렌더링
+ * - Trackball 카메라 컨트롤
+ * - QEM 알고리즘을 통한 메시 단순화 (구현 예정)
+ */
+
 #define GLM_ENABLE_EXPERIMENTAL
 #include <stdio.h>
 #include <string.h>
@@ -13,301 +22,463 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "common.h"
+#include "Mesh.h"
+#include <map>
 
-// window size & position
-const GLuint WIN_W = 1600;
-const GLuint WIN_H = 900;
-const GLuint WIN_X = 800;
-const GLuint WIN_Y = 450;
+// =============================================================================
+// Global Variables
+// =============================================================================
+
+// Window Configuration
+const GLuint WIN_W = 1600;  // Window width
+const GLuint WIN_H = 900;   // Window height
+const GLuint WIN_X = 800;   // Window X position
+const GLuint WIN_Y = 450;   // Window Y position
 float aspectRatio = (float)WIN_W / (float)WIN_H;
-GLFWwindow* window;
+GLFWwindow *window;
 
-// OBJ mesh data
-std::vector<glm::vec3> vertices;
-std::vector<glm::vec2> uvs;
-std::vector<glm::vec3> normals;
-std::vector<glm::vec4> colors; // Generated colors for each vertex
-int numVertices = 0;
+// Mesh Data
+Mesh mesh;                  // Main mesh data structure (vertices, edges, faces)
+int simplificationLevel = 0; // Current simplification level (for testing)
 
-// Sphere data (backup)
-int levelSphere = 3;
-int numVertSphere = 0;
-glm::vec4 vertSphere[10240];
-glm::vec4 normSphere[10240];
-glm::vec4 colorSphere[10240];
+// OpenGL Resources
+GLuint vao;         // Vertex Array Object
+GLuint vbo;         // Vertex Buffer Object
+GLuint textureID;   // Texture ID for mesh rendering
+GLuint programID;   // Shader program ID
 
-GLuint vao;
-GLuint vbo;
-GLuint textureID;
+// Camera Configuration
+float theta = 0.f;  // Camera rotation angle (unused currently)
+float fov = 45.f;   // Field of view (adjustable with J/K keys)
 
-float theta = 0.f;
-float fov = 45.f;
+// Trackball Camera Control
+glm::mat4 matDrag = glm::mat4(1.f);     // Current drag rotation matrix
+glm::mat4 matUpdated = glm::mat4(1.f);  // Accumulated rotation matrix
+int dragMode = GL_FALSE;                 // Mouse drag state
+glm::vec2 dragStart = glm::vec2(1.f);   // Drag start position
 
-// track ball matrix
-glm::mat4 matDrag = glm::mat4(1.f);
-glm::mat4 matUpdated = glm::mat4(1.f);
+// MVP Matrices
+glm::mat4 matModel = glm::mat4(1.f);  // Model matrix (object transform)
+glm::mat4 matView = glm::mat4(1.f);   // View matrix (camera transform)
+glm::mat4 matProj = glm::mat4(1.f);   // Projection matrix
 
-// mvp matrix
-glm::mat4 matModel = glm::mat4(1.f);
-glm::mat4 matView = glm::mat4(1.f);
-glm::mat4 matProj = glm::mat4(1.f);
+// Unused legacy variable
+GLfloat color[4] = {0.933f, 0.769f, 0.898f, 1.0f};
 
-// object info variable
-GLfloat color[4] = { 0.933f, 0.769f, 0.898f, 1.0f };
+// =============================================================================
+// Callback Functions
+// =============================================================================
 
-GLuint programID;
-
-int dragMode = GL_FALSE;
-glm::vec2 dragStart = glm::vec2(1.f);
-
+/**
+ * OpenGL Debug Callback
+ * 디버깅 메시지를 콘솔에 출력 (OpenGL 오류 추적용)
+ */
 void DebugLog(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
-	const GLchar* message, const GLvoid* userParam) {
+							const GLchar *message, const GLvoid *userParam)
+{
 	printf("Type: %#x; Source: %#x; ID: %d; Severity: %#x\n", type, source, id, severity);
 	printf("Message: %s\n", message);
 	fflush(stdout);
 }
 
-void initFunc() {
-	// program settings
-	programID = LoadShader("../../shader/vertex.glsl", "../../shader/fragment.glsl");
+// =============================================================================
+// Rendering Functions
+// =============================================================================
 
-	if (programID == 0) {
-		printf("Shader loading failed!\n");
-		return;
+/**
+ * Update VBO with current mesh data
+ * 
+ * Mesh 데이터를 GPU VBO에 업로드
+ * - Simplification 후 또는 mesh 변경 시에만 호출해야 함
+ * - 매 프레임 호출하면 성능 저하 발생
+ */
+
+void updateRenderData()
+{
+	// Extract rendering data from mesh
+	std::vector<glm::vec4> verticesVec4;  // Position data (vec3 → vec4 for homogeneous coords)
+	std::vector<glm::vec4> colors;        // Vertex colors
+	std::vector<glm::vec2> uvs;           // Texture coordinates
+	
+	for (const auto &v : mesh.vertices)
+	{
+		verticesVec4.push_back(glm::vec4(v.position, 1.0f));  // w=1 for position
+		colors.push_back(v.color);
+		uvs.push_back(v.texCoord);
 	}
 
-	// vao settings
-	glGenVertexArrays(1, &vao);
-	glBindVertexArray(vao);
+	// Calculate buffer sizes
+	size_t vertexSize = mesh.vertices.size() * sizeof(glm::vec4);
+	size_t colorSize = mesh.vertices.size() * sizeof(glm::vec4);
+	size_t uvSize = mesh.vertices.size() * sizeof(glm::vec2);
 
-	// vbo settings
-	glGenBuffers(1, &vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	
-	// Convert vec3 vertices to vec4 and prepare color data
-	std::vector<glm::vec4> verticesVec4;
-	for (const auto& v : vertices) {
-		verticesVec4.push_back(glm::vec4(v, 1.0f));
-	}
-	
-	size_t vertexSize = verticesVec4.size() * sizeof(glm::vec4);
-	size_t colorSize = colors.size() * sizeof(glm::vec4);
-	size_t uvSize = uvs.size() * sizeof(glm::vec2);
-	
+	// Upload data to GPU
+	// Layout: [positions | colors | uvs]
 	glBufferData(GL_ARRAY_BUFFER, vertexSize + colorSize + uvSize, NULL, GL_STATIC_DRAW);
 	glBufferSubData(GL_ARRAY_BUFFER, 0, vertexSize, verticesVec4.data());
 	glBufferSubData(GL_ARRAY_BUFFER, vertexSize, colorSize, colors.data());
 	glBufferSubData(GL_ARRAY_BUFFER, vertexSize + colorSize, uvSize, uvs.data());
 
-	// Setup vertex attributes (using layout locations from shader)
-	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, (void*)0);
+	// Setup vertex attributes (match shader layout locations)
+	// Location 0: position (vec4)
+	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, (void *)0);
 	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, (void*)vertexSize);
+	// Location 1: color (vec4)
+	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, (void *)vertexSize);
 	glEnableVertexAttribArray(1);
-	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, (void*)(vertexSize + colorSize));
+	// Location 2: texCoord (vec2)
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, (void *)(vertexSize + colorSize));
 	glEnableVertexAttribArray(2);
+}
 
-	// clear
+/**
+ * Initialize OpenGL resources
+ * 
+ * OpenGL 초기화:
+ * - Shader 로딩
+ * - VAO/VBO 생성
+ * - 초기 VBO 데이터 업로드
+ * - Depth test 및 face culling 설정
+ */
+void initFunc()
+{
+	// Load and compile shaders
+	programID = LoadShader("../../shader/vertex.glsl", "../../shader/fragment.glsl");
+	if (programID == 0)
+	{
+		printf("Shader loading failed!\n");
+		return;
+	}
+
+	// Create and bind VAO (Vertex Array Object)
+	glGenVertexArrays(1, &vao);
+	glBindVertexArray(vao);
+
+	// Create and bind VBO (Vertex Buffer Object)
+	glGenBuffers(1, &vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+
+	// Upload initial mesh data to GPU
+	updateRenderData();
+	
+	// Set clear color (sky blue background)
 	glClearColor(0.5f, 0.8f, 0.8f, 1.0f);
 	glClearDepthf(1.0f);
 	glUseProgram(programID);
 
-	// cullision mode settings
+	// Enable face culling (back-face culling for performance)
 	glEnable(GL_CULL_FACE);
-	glFrontFace(GL_CCW);
-	glCullFace(GL_BACK);
+	glFrontFace(GL_CCW);  // Counter-clockwise winding order
+	glCullFace(GL_BACK);  // Cull back faces
 }
-void updateFunc() {
+
+/**
+ * Update per-frame data
+ * 
+ * 프레임마다 업데이트:
+ * - 카메라 뷰 행렬 (현재는 고정 위치)
+ * - 투영 행렬 (FOV 변경 시 업데이트)
+ */
+void updateFunc()
+{
 	float elapsedTime = (float)glfwGetTime();
 	theta = elapsedTime * (3.141592f / 2.f);
-	float radius = 3.f;
+	
+	// Camera setup
+	const float CAMERA_DISTANCE = 3.0f;
 	matView = glm::lookAt(
-		//glm::vec3(radius * cosf(theta), 0.f, radius * sinf(theta)),
-		glm::vec3(0.f, 0.f, radius),
-		glm::vec3(0.f),
-		glm::vec3(0.f, 1.f, 0.f));
+			// Camera position (could enable rotation with theta)
+			glm::vec3(0.f, 0.f, CAMERA_DISTANCE),  // Eye position
+			glm::vec3(0.f, 0.f, 0.f),              // Look-at target (origin)
+			glm::vec3(0.f, 1.f, 0.f));             // Up vector
+	
+	// Projection matrix (perspective)
 	matProj = glm::perspectiveRH(
-		glm::radians(fov),  // FOV (시야각)
-		aspectRatio,         // aspect ratio (width/height)
-		0.1f,                 // zNear
-		50.0f                // zFar
-	);
+			glm::radians(fov),   // Field of view (adjustable with J/K keys)
+			aspectRatio,         // Aspect ratio (width/height)
+			0.1f,                // Near clipping plane
+			50.0f);              // Far clipping plane
 }
-void drawFunc() {
+
+/**
+ * Render the scene
+ * 
+ * 렌더링 파이프라인:
+ * 1. Clear buffers
+ * 2. Set MVP matrices
+ * 3. Bind texture
+ * 4. Draw main viewport
+ * 5. Draw mini-map viewport (top-right corner)
+ */
+void drawFunc()
+{
+	// Clear color and depth buffers
 	glClearColor(0.5f, 0.8f, 0.8f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glEnable(GL_DEPTH_TEST);
 	glDepthRange(0.f, 1.f);
+	
+	// Get current window size
 	GLint win_w, win_h;
 	glfwGetWindowSize(window, &win_w, &win_h);
 	aspectRatio = (float)win_w / (float)win_h;
-	GLint map_x = (GLint)(win_w * 0.7f);
-	GLint map_y = (GLint)(win_h * 0.05f);
-	GLsizei map_w = (GLsizei)(win_w * 0.25f);
-	GLsizei map_h = (GLsizei)(win_h * 0.25f);
+	
+	// Mini-map viewport configuration (top-right corner)
+	const float MINIMAP_X_RATIO = 0.7f;
+	const float MINIMAP_Y_RATIO = 0.05f;
+	const float MINIMAP_SIZE_RATIO = 0.25f;
+	GLint map_x = (GLint)(win_w * MINIMAP_X_RATIO);
+	GLint map_y = (GLint)(win_h * MINIMAP_Y_RATIO);
+	GLsizei map_w = (GLsizei)(win_w * MINIMAP_SIZE_RATIO);
+	GLsizei map_h = (GLsizei)(win_h * MINIMAP_SIZE_RATIO);
 
+	// Bind shader and VAO
 	glBindVertexArray(vao);
 	glUseProgram(programID);
 
+	// Upload MVP matrices to shader uniforms
 	GLuint loc;
 	loc = glGetUniformLocation(programID, "modelMat");
 	glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(matModel));
-
+	
 	loc = glGetUniformLocation(programID, "viewMat");
 	glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(matView));
-
+	
 	loc = glGetUniformLocation(programID, "projMat");
 	glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(matProj));
 
-	// Bind texture and set useTexture to true
-	if (textureID != 0) {
+	// Bind texture if available
+	if (textureID != 0)
+	{
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, textureID);
 		loc = glGetUniformLocation(programID, "textureSampler");
-		glUniform1i(loc, 0);
+		glUniform1i(loc, 0);  // Texture unit 0
 		loc = glGetUniformLocation(programID, "useTexture");
-		glUniform1i(loc, 1);
-	} else {
+		glUniform1i(loc, 1);  // Enable texture in shader
+	}
+	else
+	{
 		loc = glGetUniformLocation(programID, "useTexture");
-		glUniform1i(loc, 0);
+		glUniform1i(loc, 0);  // Use vertex colors instead
 	}
 
+	// Draw main viewport (full screen)
 	glViewport(0, 0, win_w, win_h);
-	glDrawArrays(GL_TRIANGLES, 0, numVertices);
+	glDrawArrays(GL_TRIANGLES, 0, mesh.vertices.size());
 
+	// Draw mini-map viewport (top-right corner)
 	glEnable(GL_SCISSOR_TEST);
 	glScissor(map_x, map_y, map_w, map_h);
 	glViewport(map_x, map_y, map_w, map_h);
-	glClearColor(0.5f, 0.5f, 1.f, 1.f);
+	glClearColor(0.5f, 0.5f, 1.f, 1.f);  // Bluish background for mini-map
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glDrawArrays(GL_TRIANGLES, 0, numVertices);
+	glDrawArrays(GL_TRIANGLES, 0, mesh.vertices.size());
 	glScissor(0, 0, win_w, win_h);
 	glDisable(GL_SCISSOR_TEST);
-	
+
 	glFinish();
-	
 }
-void cursorPosFunc(GLFWwindow* win, double xscr, double yscr)
+
+// =============================================================================
+// Input Callback Functions
+// =============================================================================
+
+/**
+ * Mouse cursor position callback (for trackball rotation)
+ */
+void cursorPosFunc(GLFWwindow *win, double xscr, double yscr)
 {
-	if (dragMode) {
+	if (dragMode)
+	{
+		// Calculate trackball rotation from mouse drag
 		glm::vec2 dragCur = glm::vec2((GLfloat)xscr, (GLfloat)yscr);
 		matDrag = calcTrackball(dragStart, dragCur, (float)WIN_W, (float)WIN_H);
+		// Apply rotation to model matrix
 		matModel = matDrag * matUpdated;
 	}
 }
-void mouseButtonFunc(GLFWwindow* win, int button, int action, int mods)
+
+/**
+ * Mouse button callback (start/end trackball rotation)
+ */
+void mouseButtonFunc(GLFWwindow *win, int button, int action, int mods)
 {
 	GLdouble x, y;
-	switch (action) {
+	switch (action)
+	{
 	case GLFW_PRESS:
+		// Start dragging
 		dragMode = GL_TRUE;
 		glfwGetCursorPos(win, &x, &y);
 		dragStart = glm::vec2((GLfloat)x, (GLfloat)y);
 		break;
+		
 	case GLFW_RELEASE:
+		// End dragging and accumulate rotation
 		dragMode = GL_FALSE;
 		glfwGetCursorPos(win, &x, &y);
 		glm::vec2 dragCur = glm::vec2((GLfloat)x, (GLfloat)y);
 		matDrag = calcTrackball(dragStart, dragCur, (float)WIN_W, (float)WIN_H);
 		matModel = matDrag * matUpdated;
-		matDrag = glm::mat4(1.0F); // reset
-		matUpdated = matModel; // update to the object matrix
+		matDrag = glm::mat4(1.0F);   // Reset drag matrix
+		matUpdated = matModel;        // Save accumulated rotation
 		break;
 	}
 	fflush(stdout);
 }
-void keyFunc(GLFWwindow* window, int key, int scancode, int action, int mods) {
-	switch (key) {
+
+/**
+ * Keyboard callback
+ * 
+ * Controls:
+ * - ESC: Exit application
+ * - J/K: Increase/decrease FOV
+ * - SPACE: Trigger simplification (WIP)
+ */
+void keyFunc(GLFWwindow *window, int key, int scancode, int action, int mods)
+{
+	switch (key)
+	{
 	case GLFW_KEY_ESCAPE:
-		if (action == GLFW_PRESS) {
-			printf("escape pressed\n");
+		if (action == GLFW_PRESS)
+		{
+			printf("Exiting application\n");
 			fflush(stdout);
 			glfwSetWindowShouldClose(window, GL_TRUE);
 		}
 		break;
+		
 	case GLFW_KEY_J:
-		if (action == GLFW_PRESS) {
+		if (action == GLFW_PRESS)
+		{
+			// Increase field of view (zoom out)
 			fov = std::clamp(fov + 5.f, 0.f, 120.f);
+			printf("FOV: %.1f\n", fov);
 		}
 		break;
+		
 	case GLFW_KEY_K:
-		if (action == GLFW_PRESS) {
+		if (action == GLFW_PRESS)
+		{
+			// Decrease field of view (zoom in)
 			fov = std::clamp(fov - 5.f, 0.f, 120.f);
+			printf("FOV: %.1f\n", fov);
 		}
 		break;
+		
+	case GLFW_KEY_SPACE:
+		// Trigger mesh simplification (implementation in progress)
+		simplificationLevel++;
+		// TODO: Implement simplifyMesh(mesh, simplificationLevel);
+		updateRenderData();  // Refresh VBO after simplification
+		printf("Simplification level: %d\n", simplificationLevel);
+		break;
+		
 	default:
 		break;
 	}
 }
-void refreshFunc(GLFWwindow* window) {
+void refreshFunc(GLFWwindow *window)
+{
 	glClear(GL_COLOR_BUFFER_BIT);
 	glfwSwapBuffers(window);
 }
 
+// =============================================================================
+// Main Function
+// =============================================================================
 
+int main(int argc, char *arvg[])
+{
 
-int main(int argc, char* arvg[]) {
-
-	// glfw settings
+	// -------------------------------------------------------------------------
+	// 1. Initialize GLFW and create window
+	// -------------------------------------------------------------------------
 	glfwInit();
-	window = glfwCreateWindow(WIN_W, WIN_H, "title", NULL, NULL);
+	window = glfwCreateWindow(WIN_W, WIN_H, "QEM Mesh Simplification", NULL, NULL);
 	glfwSetWindowPos(window, WIN_X, WIN_Y);
 	glfwMakeContextCurrent(window);
 
-	// glew settings
+	// Initialize GLEW (OpenGL extension loader)
 	glewInit();
 
-	//glfw callback settings
+	// Register input callbacks
 	glfwSetKeyCallback(window, keyFunc);
 	glfwSetCursorPosCallback(window, cursorPosFunc);
 	glfwSetMouseButtonCallback(window, mouseButtonFunc);
 
-	// Load OBJ file
+	// -------------------------------------------------------------------------
+	// 2. Load OBJ mesh file
+	// -------------------------------------------------------------------------
+	std::vector<glm::vec3> vertices;  // Temporary storage for OBJ data
+	std::vector<glm::vec2> uvs;
+	std::vector<glm::vec3> normals;
+	int numVertices = 0;
+	
 	bool res = loadOBJ("../../resource/mesh.obj", vertices, uvs, normals);
-	if (!res) {
+	if (!res)
+	{
 		printf("Failed to load OBJ file!\n");
 		return -1;
 	}
 	numVertices = vertices.size();
 	printf("Loaded %d vertices\n", numVertices);
-	
-	// Generate colors for each vertex
-	for (size_t i = 0; i < vertices.size(); i++) {
-		glm::vec4 color(1.0f, 1.0f, 1.0f, 1.0f); // White for texture
-		colors.push_back(color);
-	}
-	
-	// Load texture
+
+	// -------------------------------------------------------------------------
+	// 3. Build mesh data structure (Vertex, Edge, Face)
+	// -------------------------------------------------------------------------
+	mesh.buildMesh(numVertices, vertices, uvs, normals);
+	printf("Mesh: %zu vertices, %zu faces, %zu edges\n",
+				 mesh.vertices.size(), mesh.faces.size(), mesh.edges.size());
+
+	// -------------------------------------------------------------------------
+	// 4. Load texture
+	// -------------------------------------------------------------------------
 	textureID = loadTexture("../../resource/texture.jpg");
-	if (textureID == 0) {
+	if (textureID == 0)
+	{
 		printf("Warning: Texture not loaded, using vertex colors\n");
 	}
-	
-	// generateSphere(levelSphere); // Backup sphere generation
-	// register debug callback
+
+	// -------------------------------------------------------------------------
+	// 5. Initialize OpenGL (shaders, VAO, VBO)
+	// -------------------------------------------------------------------------
+	// Enable OpenGL debug output for error tracking
 	glEnable(GL_DEBUG_OUTPUT);
 	glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 	glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, NULL, GL_TRUE);
 	glDebugMessageCallback(DebugLog, NULL);
 
 	initFunc();
-	// main loop
-	while (!glfwWindowShouldClose(window)) {
-		//dpdate
+	
+	// -------------------------------------------------------------------------
+	// 6. Main rendering loop
+	// -------------------------------------------------------------------------
+	while (!glfwWindowShouldClose(window))
+	{
+		// Update per-frame data (camera, projection)
 		updateFunc();
-		// draw
+		
+		// Render scene
 		drawFunc();
-		// error check
+		
+		// Check for OpenGL errors
 		GLenum err = glGetError();
-		if (err != GL_NO_ERROR) {
-			printf("OpneGL error%x\n", err);
+		if (err != GL_NO_ERROR)
+		{
+			printf("OpenGL error: 0x%x\n", err);
 			fflush(stdout);
 		}
-		// GLFW actions
+		
+		// Swap buffers and poll events
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
-	//done
+	
+	// -------------------------------------------------------------------------
+	// 7. Cleanup
+	// -------------------------------------------------------------------------
 	glfwTerminate();
 	return 0;
 }
