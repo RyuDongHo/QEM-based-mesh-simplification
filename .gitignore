@@ -36,7 +36,5 @@ Makefile
 # Project files
 todo.txt
 
-# Resource files (only .obj and .jpg allowed)
-resource/*
-!resource/*.obj
-!resource/*.jpg
+# Resource files (ignored - add your own test files)
+resource/

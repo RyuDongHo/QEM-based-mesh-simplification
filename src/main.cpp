@@ -278,7 +278,7 @@ int main(int argc, char* arvg[]) {
 	}
 	
 	// Load texture
-	textureID = loadTexture("../../resource/default_baseColor.jpg");
+	textureID = loadTexture("../../resource/texture.jpg");
 	if (textureID == 0) {
 		printf("Warning: Texture not loaded, using vertex colors\n");
 	}

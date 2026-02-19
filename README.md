@@ -58,6 +58,21 @@ cd build/Release
 ./QEM_Simplification.exe
 ```
 
+## 테스트용 메시 추가 방법
+
+프로젝트 루트의 `resource/` 폴더에 다음 파일들을 추가하세요:
+
+```
+resource/
+├── mesh.obj          # 테스트할 3D 메시 파일 (필수)
+├── texture.jpg       # 메시 텍스처 파일 (선택, 없으면 색상만 렌더링)
+```
+
+**참고:**
+- OBJ 파일은 vertices (v), texture coordinates (vt), normals (vn), faces (f) 포맷을 지원합니다.
+- 텍스처는 JPG/PNG 형식을 지원합니다.
+- `resource/` 폴더는 `.gitignore`에 추가되어 Git에 업로드되지 않습니다.
+
 ## 기능
 
 - [x] OpenGL 기반 3D 렌더링 파이프라인 구축
