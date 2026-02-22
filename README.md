@@ -6,6 +6,10 @@
 
 이 프로젝트는 QEM(Quadric Error Metric) 알고리즘을 적용하여 3D 메시의 폴리곤 수를 줄이면서도 원본 형상을 최대한 유지하는 메시 단순화(Mesh Simplification) 기능을 구현합니다.
 
+## 시연 영상
+
+![QEM Simplification Demo](test.gif)
+
 ## 기술 스택
 
 - **언어**: C++17
@@ -73,11 +77,8 @@ resource/
 - 텍스처는 JPG/PNG 형식을 지원합니다.
 - `resource/` 폴더는 `.gitignore`에 추가되어 Git에 업로드되지 않습니다.
 
-## 기능
+## reference
 
-- 트랙볼 카메라 컨트롤 (마우스 드래그로 회전)
-- QEM based simplification (spacebar 클릭하여 테스트)
+- paper: Garland, M., & Heckbert, P. S. (1997). "Surface simplification using quadric error metrics." *SIGGRAPH 97*.
 
-## 참고 문헌
-
-- Garland, M., & Heckbert, P. S. (1997). "Surface simplification using quadric error metrics." *SIGGRAPH 97*.
+- model: [Sketchfab](https://skfb.ly/6nqP6), made by **Moon dong hwa**
