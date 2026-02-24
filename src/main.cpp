@@ -54,11 +54,23 @@ GLuint programID; // Shader program ID
 float theta = 0.f; // Camera rotation angle (unused currently)
 float fov = 45.f;	 // Field of view (adjustable with J/K keys)
 
-// Trackball Camera Control
+// Orbit Control Camera
+float cameraRadius = 5.0f;							// Distance from target
+float cameraTheta = glm::radians(45.0f);	// Azimuthal angle (horizontal rotation)
+float cameraPhi = glm::radians(45.0f);		// Polar angle (vertical rotation)
+glm::vec3 cameraTarget = glm::vec3(0.f, 0.f, 0.f); // Look-at target
+float rotSpeed = 0.005f;									// Rotation speed multiplier
+float panSpeed = 0.005f;										// Pan speed multiplier
+float zoomSpeed = 8.0f;										// Zoom speed multiplier
+
+// Mouse Control State
+enum MouseMode { NONE, ROTATE, PAN };
+MouseMode mouseMode = NONE;								// Current mouse interaction mode
+glm::vec2 lastMousePos = glm::vec2(0.f);	// Previous mouse position
+
+// Trackball Model Control (legacy, for compatibility)
 glm::mat4 matDrag = glm::mat4(1.f);		 // Current drag rotation matrix
 glm::mat4 matUpdated = glm::mat4(1.f); // Accumulated rotation matrix
-int dragMode = GL_FALSE;							 // Mouse drag state
-glm::vec2 dragStart = glm::vec2(1.f);	 // Drag start position
 
 // MVP Matrices
 glm::mat4 matModel = glm::mat4(1.f); // Model matrix (object transform)
@@ -319,12 +331,20 @@ void updateFunc()
 	float elapsedTime = (float)glfwGetTime();
 	theta = elapsedTime * (3.141592f / 2.f);
 
-	// Camera setup
+	// Orbit Control Camera: Convert spherical coordinates to Cartesian
+	// x = r * sin(phi) * cos(theta)
+	// y = r * cos(phi)
+	// z = r * sin(phi) * sin(theta)
+	glm::vec3 cameraPos;
+	cameraPos.x = cameraTarget.x + cameraRadius * sin(cameraPhi) * cos(cameraTheta);
+	cameraPos.y = cameraTarget.y + cameraRadius * cos(cameraPhi);
+	cameraPos.z = cameraTarget.z + cameraRadius * sin(cameraPhi) * sin(cameraTheta);
+
+	// Camera setup with orbit control
 	matView = glm::lookAt(
-			// Camera position (could enable rotation with theta)
-			glm::vec3(50.f, 50.f, 50.f), // Eye position
-			glm::vec3(0.f, 10.f, 0.f),							// Look-at target (origin)
-			glm::vec3(0.f, 1.f, 0.f));						// Up vector
+			cameraPos,				 // Eye position (calculated from spherical coords)
+			cameraTarget,			 // Look-at target (adjustable with right-click pan)
+			glm::vec3(0.f, 1.f, 0.f)); // Up vector
 
 	// Projection matrix (perspective)
 	matProj = glm::perspectiveRH(
@@ -423,43 +443,77 @@ void drawFunc()
  */
 void cursorPosFunc(GLFWwindow *win, double xscr, double yscr)
 {
-	if (dragMode)
+	glm::vec2 currentMousePos = glm::vec2((float)xscr, (float)yscr);
+	glm::vec2 delta = currentMousePos - lastMousePos;
+
+	if (mouseMode == ROTATE)
 	{
-		// Calculate trackball rotation from mouse drag
-		glm::vec2 dragCur = glm::vec2((GLfloat)xscr, (GLfloat)yscr);
-		matDrag = calcTrackball(dragStart, dragCur, (float)WIN_W, (float)WIN_H);
-		// Apply rotation to model matrix
-		matModel = matDrag * matUpdated;
+		// Rotate camera around target
+		cameraTheta -= delta.x * rotSpeed; // Horizontal rotation
+		cameraPhi -= delta.y * rotSpeed;	 // Vertical rotation
+
+		// Clamp phi to avoid gimbal lock (keep between 0.1 and PI-0.1)
+		cameraPhi = glm::clamp(cameraPhi, 0.1f, glm::pi<float>() - 0.1f);
 	}
+	else if (mouseMode == PAN)
+	{
+		// Pan camera target in screen space
+		// Calculate right and up vectors from current camera orientation
+		glm::vec3 cameraPos;
+		cameraPos.x = cameraTarget.x + cameraRadius * sin(cameraPhi) * cos(cameraTheta);
+		cameraPos.y = cameraTarget.y + cameraRadius * cos(cameraPhi);
+		cameraPos.z = cameraTarget.z + cameraRadius * sin(cameraPhi) * sin(cameraTheta);
+
+		glm::vec3 forward = glm::normalize(cameraTarget - cameraPos);
+		glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.f, 1.f, 0.f)));
+		glm::vec3 up = glm::normalize(glm::cross(right, forward));
+
+		// Move target based on mouse delta
+		cameraTarget -= right * delta.x * panSpeed;
+		cameraTarget += up * delta.y * panSpeed;
+	}
+
+	lastMousePos = currentMousePos;
 }
 
 /**
- * Mouse button callback (start/end trackball rotation)
+ * Mouse button callback (orbit control)
+ * Left button: Rotate camera around target
+ * Right button: Pan camera target
  */
 void mouseButtonFunc(GLFWwindow *win, int button, int action, int mods)
 {
 	GLdouble x, y;
-	switch (action)
-	{
-	case GLFW_PRESS:
-		// Start dragging
-		dragMode = GL_TRUE;
-		glfwGetCursorPos(win, &x, &y);
-		dragStart = glm::vec2((GLfloat)x, (GLfloat)y);
-		break;
+	glfwGetCursorPos(win, &x, &y);
+	lastMousePos = glm::vec2((float)x, (float)y);
 
-	case GLFW_RELEASE:
-		// End dragging and accumulate rotation
-		dragMode = GL_FALSE;
-		glfwGetCursorPos(win, &x, &y);
-		glm::vec2 dragCur = glm::vec2((GLfloat)x, (GLfloat)y);
-		matDrag = calcTrackball(dragStart, dragCur, (float)WIN_W, (float)WIN_H);
-		matModel = matDrag * matUpdated;
-		matDrag = glm::mat4(1.0F); // Reset drag matrix
-		matUpdated = matModel;		 // Save accumulated rotation
-		break;
+	if (action == GLFW_PRESS)
+	{
+		if (button == GLFW_MOUSE_BUTTON_LEFT)
+		{
+			mouseMode = ROTATE;
+		}
+		else if (button == GLFW_MOUSE_BUTTON_RIGHT)
+		{
+			mouseMode = PAN;
+		}
 	}
-	fflush(stdout);
+	else if (action == GLFW_RELEASE)
+	{
+		mouseMode = NONE;
+	}
+}
+
+/**
+ * Mouse scroll callback (zoom in/out)
+ */
+void scrollFunc(GLFWwindow *win, double xoffset, double yoffset)
+{
+	// Zoom in/out by adjusting camera radius
+	cameraRadius -= (float)yoffset * zoomSpeed;
+	
+	// Clamp radius to prevent getting too close or too far
+	cameraRadius = glm::clamp(cameraRadius, 5.0f, 500.0f);
 }
 
 /**
@@ -542,6 +596,7 @@ int main(int argc, char *arvg[])
 	glfwSetKeyCallback(window, keyFunc);
 	glfwSetCursorPosCallback(window, cursorPosFunc);
 	glfwSetMouseButtonCallback(window, mouseButtonFunc);
+	glfwSetScrollCallback(window, scrollFunc);
 
 	// -------------------------------------------------------------------------
 	// 2. Load GLB mesh file (with embedded texture)

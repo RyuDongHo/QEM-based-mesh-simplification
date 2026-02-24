@@ -25,6 +25,7 @@ find_package(OpenGL REQUIRED)
 # 인클루드 디렉토리 설정
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/includes
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib
     ${GLEW_INCLUDE_DIRS}
     ${GLFW_INCLUDE_DIRS}
     ${GLM_INCLUDE_DIRS}

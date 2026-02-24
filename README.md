@@ -20,6 +20,37 @@
   - GLFW 3.4
   - GLM (Mathematics Library)
 
+## 외부 라이브러리
+
+### 렌더링 라이브러리
+- **GLEW 2.3.1** - OpenGL Extension Wrangler Library
+  - 출처: https://glew.sourceforge.net/
+  - 라이선스: Modified BSD License, MIT License
+  
+- **GLFW 3.4** - OpenGL Framework
+  - 출처: https://www.glfw.org/
+  - 라이선스: zlib/libpng License
+  
+- **GLM** - OpenGL Mathematics
+  - 출처: https://github.com/g-truc/glm
+  - 라이선스: MIT License
+
+### 파일 로딩 라이브러리
+- **TinyGLTF** - Header-only C++ glTF 2.0 library
+  - 출처: https://github.com/syoyo/tinygltf
+  - 라이선스: MIT License
+  - 위치: `lib/tinygltf/tiny_gltf.h`
+  
+- **nlohmann/json 3.11.3** - JSON for Modern C++
+  - 출처: https://github.com/nlohmann/json
+  - 라이선스: MIT License
+  - 위치: `lib/json/json.hpp`
+  
+- **stb_image & stb_image_write** - Image loading/writing library
+  - 출처: https://github.com/nothings/stb
+  - 라이선스: MIT License / Public Domain
+  - 위치: `lib/stb/stb_image.h`, `lib/stb/stb_image_write.h`
+
 ## 프로젝트 구조
 
 ```
@@ -27,7 +58,10 @@ simplification/
 ├── lib/                    # 외부 라이브러리
 │   ├── glew/              # GLEW 라이브러리
 │   ├── glfw/              # GLFW 라이브러리
-│   └── glm/               # GLM 수학 라이브러리
+│   ├── glm/               # GLM 수학 라이브러리
+│   ├── tinygltf/          # TinyGLTF (GLB/GLTF 로더)
+│   ├── json/              # nlohmann/json
+│   └── stb/               # STB Image 라이브러리
 ├── includes/              # 헤더 파일
 │   └── common.h           # 공통 유틸리티 헤더
 ├── src/                   # 소스 파일

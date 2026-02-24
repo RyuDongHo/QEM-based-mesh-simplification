@@ -12,7 +12,7 @@
 #define TINYGLTF_IMPLEMENTATION
 #define TINYGLTF_NOEXCEPTION
 #define JSON_NOEXCEPTION
-#include "tiny_gltf.h"
+#include "../lib/tinygltf/tiny_gltf.h"
 
 // 셰이더 파일 읽기
 std::string readShaderFile(const char* filePath) {
