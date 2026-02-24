@@ -2,7 +2,7 @@
 
 ## description
 
-Quadric Error Metrci(QEM) based mesh simplification system
+Quadric Error Metric(QEM) based mesh simplification system
 
 ## test
 
