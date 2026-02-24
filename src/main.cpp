@@ -52,21 +52,26 @@ GLuint programID; // Shader program ID
 
 // Camera Configuration
 float theta = 0.f; // Camera rotation angle (unused currently)
-float fov = 45.f;	 // Field of view (adjustable with J/K keys)
+float fov = 80.f;	 // Field of view (adjustable with J/K keys)
 
 // Orbit Control Camera
-float cameraRadius = 5.0f;							// Distance from target
-float cameraTheta = glm::radians(45.0f);	// Azimuthal angle (horizontal rotation)
-float cameraPhi = glm::radians(45.0f);		// Polar angle (vertical rotation)
+float cameraRadius = 100.0f;											 // Distance from target
+float cameraTheta = glm::radians(45.0f);					 // Azimuthal angle (horizontal rotation)
+float cameraPhi = glm::radians(45.0f);						 // Polar angle (vertical rotation)
 glm::vec3 cameraTarget = glm::vec3(0.f, 0.f, 0.f); // Look-at target
-float rotSpeed = 0.005f;									// Rotation speed multiplier
-float panSpeed = 0.005f;										// Pan speed multiplier
-float zoomSpeed = 8.0f;										// Zoom speed multiplier
+float rotSpeed = 0.005f;													 // Rotation speed multiplier
+float panSpeed = 0.05f;														 // Pan speed multiplier
+float zoomSpeed = 8.0f;														 // Zoom speed multiplier
 
 // Mouse Control State
-enum MouseMode { NONE, ROTATE, PAN };
-MouseMode mouseMode = NONE;								// Current mouse interaction mode
-glm::vec2 lastMousePos = glm::vec2(0.f);	// Previous mouse position
+enum MouseMode
+{
+	NONE,
+	ROTATE,
+	PAN
+};
+MouseMode mouseMode = NONE;							 // Current mouse interaction mode
+glm::vec2 lastMousePos = glm::vec2(0.f); // Previous mouse position
 
 // Trackball Model Control (legacy, for compatibility)
 glm::mat4 matDrag = glm::mat4(1.f);		 // Current drag rotation matrix
@@ -121,35 +126,35 @@ size_t updateRenderData()
 	verticesVec4.clear();
 	colors.clear();
 	uvs.clear();
-	
+
 	// Pre-allocate memory for better performance
 	size_t estimatedSize = mesh.faces.size() * 3;
 	verticesVec4.reserve(estimatedSize);
 	colors.reserve(estimatedSize);
 	uvs.reserve(estimatedSize);
-	
+
 	// Render based on FACES, not vertices
 	// Each face contributes 3 vertices to the rendering buffer
 	for (const Face &face : mesh.faces)
 	{
 		if (face.isDeleted)
 			continue; // Skip deleted faces
-		
+
 		// Add the 3 vertices of this face
 		const Vertex &v1 = mesh.vertices[face.v1];
 		const Vertex &v2 = mesh.vertices[face.v2];
 		const Vertex &v3 = mesh.vertices[face.v3];
-		
+
 		// Positions
 		verticesVec4.push_back(glm::vec4(v1.position, 1.0f));
 		verticesVec4.push_back(glm::vec4(v2.position, 1.0f));
 		verticesVec4.push_back(glm::vec4(v3.position, 1.0f));
-		
+
 		// Colors
 		colors.push_back(v1.color);
 		colors.push_back(v2.color);
 		colors.push_back(v3.color);
-		
+
 		// UVs
 		uvs.push_back(v1.texCoord);
 		uvs.push_back(v2.texCoord);
@@ -198,10 +203,10 @@ std::priority_queue<Edge, std::vector<Edge>, EdgeComparator> edgeQueue;
 
 /**
  * Mesh Simplification using QEM
- * 
+ *
  * Lazy evaluation: edge cost는 필요할 때만 재계산
  * isDirty flag로 cost가 오래되었는지 추적
- * 
+ *
  * 한 번 호출 시 하나의 edge만 collapse
  */
 void meshSimplify()
@@ -232,7 +237,7 @@ void meshSimplify()
 		{
 			// Check both directions since edge can be stored as (v1,v2) or (v2,v1)
 			if ((mesh.edges[i].v1 == edge.v1 && mesh.edges[i].v2 == edge.v2) ||
-			    (mesh.edges[i].v1 == edge.v2 && mesh.edges[i].v2 == edge.v1))
+					(mesh.edges[i].v1 == edge.v2 && mesh.edges[i].v2 == edge.v1))
 			{
 				edgeIndex = i;
 				break;
@@ -273,7 +278,8 @@ void meshSimplify()
 			}
 		}
 		++count;
-		if(count >= originalVertexCount / 100) break;
+		if (count >= originalVertexCount / 100)
+			break;
 	}
 }
 /**
@@ -315,7 +321,7 @@ void initFunc()
 
 	// Disable face culling for GLB compatibility (some models have flipped normals)
 	glDisable(GL_CULL_FACE);
-	
+
 	printf("OpenGL initialization complete\n");
 }
 
@@ -342,8 +348,8 @@ void updateFunc()
 
 	// Camera setup with orbit control
 	matView = glm::lookAt(
-			cameraPos,				 // Eye position (calculated from spherical coords)
-			cameraTarget,			 // Look-at target (adjustable with right-click pan)
+			cameraPos,								 // Eye position (calculated from spherical coords)
+			cameraTarget,							 // Look-at target (adjustable with right-click pan)
 			glm::vec3(0.f, 1.f, 0.f)); // Up vector
 
 	// Projection matrix (perspective)
@@ -351,7 +357,7 @@ void updateFunc()
 			glm::radians(fov), // Field of view (adjustable with J/K keys)
 			aspectRatio,			 // Aspect ratio (width/height)
 			0.1f,							 // Near clipping plane
-			5000.0f);						 // Far clipping plane
+			5000.0f);					 // Far clipping plane
 }
 
 /**
@@ -511,7 +517,7 @@ void scrollFunc(GLFWwindow *win, double xoffset, double yoffset)
 {
 	// Zoom in/out by adjusting camera radius
 	cameraRadius -= (float)yoffset * zoomSpeed;
-	
+
 	// Clamp radius to prevent getting too close or too far
 	cameraRadius = glm::clamp(cameraRadius, 5.0f, 500.0f);
 }
@@ -556,13 +562,13 @@ void keyFunc(GLFWwindow *window, int key, int scancode, int action, int mods)
 		break;
 
 	case GLFW_KEY_SPACE:
-	{
-		// Trigger mesh simplification (implementation in progress)
-		simplificationLevel++;
-		meshSimplify();
-		activeVertexCount = updateRenderData(); // Refresh VBO after simplification
-		break;
-	}
+		if (action == GLFW_PRESS)
+		{
+			printf("Starting mesh simplification...\n");
+			meshSimplify();
+			activeVertexCount = updateRenderData(); // Update VBO with simplified mesh
+			printf("Simplification step complete. Active vertex count: %zu\n", activeVertexCount);
+		}
 
 	default:
 		break;
@@ -632,7 +638,8 @@ int main(int argc, char *arvg[])
 	// -------------------------------------------------------------------------
 	// 4. Check texture loading status
 	// -------------------------------------------------------------------------
-	if (textureID == 0) {
+	if (textureID == 0)
+	{
 		printf("Warning: No embedded texture in GLB file, using vertex colors\n");
 	}
 

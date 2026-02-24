@@ -122,5 +122,3 @@ resource/
 ## reference
 
 - paper: Garland, M., & Heckbert, P. S. (1997). "Surface simplification using quadric error metrics." *SIGGRAPH 97*.
-
-- model: [Sketchfab](https://skfb.ly/6nqP6), made by **Moon dong hwa**
