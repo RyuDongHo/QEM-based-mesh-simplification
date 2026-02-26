@@ -65,7 +65,7 @@ cd build/Release
 
 - **J key**: Decrease FOV (zoom in)
 - **K key**: Increase FOV (zoom out)
-- **Spacebar**: simplificate mesh
+- **Spacebar**: simplify mesh
 
 ## How to add a mesh
 
